@@ -1,15 +1,15 @@
 use crate::{
-	benchmarking::{inherent_benchmark_data, RemarkBuilder, TransferKeepAliveBuilder},
 	chain_spec,
 	cli::{Cli, Subcommand},
+	command_helper::{inherent_benchmark_data, BenchmarkExtrinsicBuilder},
 	service,
 	service::ExecutorDispatch,
 };
-use contracts_node_runtime::{Block, EXISTENTIAL_DEPOSIT};
-use frame_benchmarking_cli::{BenchmarkCmd, ExtrinsicFactory, SUBSTRATE_REFERENCE_HARDWARE};
+use contracts_node_runtime::Block;
+use frame_benchmarking_cli::{BenchmarkCmd, SUBSTRATE_REFERENCE_HARDWARE};
 use sc_cli::{ChainSpec, RuntimeVersion, SubstrateCli};
 use sc_service::PartialComponents;
-use sp_keyring::Sr25519Keyring;
+use std::sync::Arc;
 
 impl SubstrateCli for Cli {
 	fn impl_name() -> String {
@@ -52,22 +52,7 @@ impl SubstrateCli for Cli {
 
 /// Parse and run command line arguments
 pub fn run() -> sc_cli::Result<()> {
-	let mut cli = Cli::from_args();
-
-	// this is a development node: make dev chain spec the default
-	if cli.run.shared_params.chain.is_none() {
-		cli.run.shared_params.dev = true;
-	}
-
-	// remove block production noise and output contracts debug buffer by default
-	if cli.run.shared_params.log.is_empty() {
-		cli.run.shared_params.log = vec![
-			"runtime::contracts=debug".into(),
-			"sc_cli=info".into(),
-			"sc_rpc_server=info".into(),
-			"warn".into(),
-		];
-	}
+	let cli = Cli::from_args();
 
 	match &cli.subcommand {
 		Some(Subcommand::Key(cmd)) => cmd.run(&cli),
@@ -149,29 +134,9 @@ pub fn run() -> sc_cli::Result<()> {
 					},
 					BenchmarkCmd::Overhead(cmd) => {
 						let PartialComponents { client, .. } = service::new_partial(&config)?;
-						let ext_builder = RemarkBuilder::new(client.clone());
+						let ext_builder = BenchmarkExtrinsicBuilder::new(client.clone());
 
-						cmd.run(
-							config,
-							client,
-							inherent_benchmark_data()?,
-							Vec::new(),
-							&ext_builder,
-						)
-					},
-					BenchmarkCmd::Extrinsic(cmd) => {
-						let PartialComponents { client, .. } = service::new_partial(&config)?;
-						// Register the *Remark* and *TKA* builders.
-						let ext_factory = ExtrinsicFactory(vec![
-							Box::new(RemarkBuilder::new(client.clone())),
-							Box::new(TransferKeepAliveBuilder::new(
-								client.clone(),
-								Sr25519Keyring::Alice.to_account_id(),
-								EXISTENTIAL_DEPOSIT,
-							)),
-						]);
-
-						cmd.run(client, inherent_benchmark_data()?, Vec::new(), &ext_factory)
+						cmd.run(config, client, inherent_benchmark_data()?, Arc::new(ext_builder))
 					},
 					BenchmarkCmd::Machine(cmd) =>
 						cmd.run(&config, SUBSTRATE_REFERENCE_HARDWARE.clone()),
